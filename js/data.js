@@ -76,6 +76,7 @@ function normalizeState(s) {
     plan: {},
     transactions: [],
   };
+  if (s.isExample) out.isExample = true;
   out.categories.forEach(c => {
     const p = (s.plan && s.plan[c.id]) || [];
     out.plan[c.id] = zeros().map((_, i) => Number(p[i]) || 0);
@@ -87,6 +88,72 @@ function normalizeState(s) {
   });
   return out;
 }
+
+/* ---------- Guardado en la cuenta (solo dentro de claude.ai) ----------
+ * Fuera de claude.ai no existe window.claude y todo queda en localStorage.
+ * Dentro, el estado completo se guarda como un documento privado del usuario,
+ * así el presupuesto es el mismo en el celular y en el computador. */
+const Cloud = {
+  doc: null, active: false, lastJson: null, pending: null, writing: false, timer: null, status: () => {},
+
+  async start({ onRemote, localState, onStatus }) {
+    this.status = onStatus;
+    onStatus('Guardado en este navegador', '');
+    if (!(window.claude && typeof window.claude.use === 'function')) return;
+    let db = null, user = null;
+    try { [db, user] = await Promise.all([window.claude.use('db'), window.claude.use('user')]); } catch (e) { /* sin capacidad */ }
+    if (!db || !user) return;
+    const id = await user.id().catch(() => null);
+    if (!id) return;
+    this.doc = db.doc('data/users/' + id + '/presupuesto-2027');
+    onStatus('Conectando con tu cuenta…', '');
+    let confirmed = false;
+    const timeout = setTimeout(() => { if (!confirmed) onStatus('Tu cuenta no responde todavía; se guarda en este navegador', 'warn'); }, 10000);
+    this.doc.onSnapshot(snap => {
+      const d = snap.exists ? snap.data() : null;
+      if (d && typeof d.json === 'string') {
+        if (d.json !== this.lastJson) {
+          this.lastJson = d.json;
+          try { const st = normalizeState(JSON.parse(d.json)); saveState(st); onRemote(st); } catch (e) { /* documento dañado: se ignora */ }
+        }
+      }
+      if (!snap.metadata.fromCache && !confirmed) {
+        confirmed = true; clearTimeout(timeout); this.active = true;
+        if (!d) this.save(localState()); // primera vez: sube lo que hay en este navegador
+        onStatus('Guardado en tu cuenta', 'good');
+      }
+    }, () => {
+      clearTimeout(timeout); this.active = false;
+      onStatus('Sin conexión con tu cuenta; se guarda en este navegador', 'warn');
+    });
+  },
+
+  save(state) {
+    if (!this.doc || !this.active) return false;
+    this.pending = JSON.stringify(state);
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.flush(), 700);
+    return true;
+  },
+
+  async flush() {
+    if (this.writing || this.pending == null) return;
+    const json = this.pending; this.pending = null;
+    if (json === this.lastJson) return;
+    this.writing = true; this.lastJson = json;
+    this.status('Guardando…', '');
+    try {
+      await this.doc.set({ json, updatedAt: new Date().toISOString() });
+      this.status('Guardado en tu cuenta', 'good');
+    } catch (e) {
+      const full = e && (e.code === 'quota_exceeded' || e.code === 'invalid_argument');
+      this.status(full ? 'Tu cuenta no admite más datos: exporta un respaldo' : 'No se pudo guardar en tu cuenta; quedó en este navegador', 'warn');
+    } finally {
+      this.writing = false;
+      if (this.pending != null) this.flush();
+    }
+  },
+};
 
 /* ---------- Datos de ejemplo (deterministas) ---------- */
 function exampleState() {

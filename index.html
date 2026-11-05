@@ -2,18 +2,19 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Presupuesto 2027</title>
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
-      <span class="logo">₿</span>
+      <span class="logo">27</span>
       <div>
         <h1>Presupuesto 2027</h1>
         <p class="sub">Programación, control y KPI de tu presupuesto mensual</p>
       </div>
+      <span id="sync" class="sync">Guardado en este navegador</span>
     </div>
     <nav class="tabs" id="tabs">
       <button data-view="resumen" class="active">Resumen</button>
@@ -40,6 +41,8 @@
       <div id="modal-content"></div>
     </div>
   </div>
+
+  <div id="dialog" class="modal hidden" role="dialog" aria-modal="true"></div>
 
   <div id="toast" class="toast hidden"></div>
 

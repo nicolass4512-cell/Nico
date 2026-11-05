@@ -1,9 +1,8 @@
 /* Interfaz principal del gestor de presupuesto 2027 */
 'use strict';
 
-let firstRun = false;
-let state = loadState();
-if (!state) { state = emptyState(); firstRun = true; }
+// Primera visita: se abre con datos de ejemplo claramente marcados
+let state = loadState() || Object.assign(exampleState(), { isExample: true });
 
 const ui = { view: 'resumen', kpiPeriod: 'ytd', movMonth: 'all', movCat: 'all', modalMonth: null };
 
@@ -19,18 +18,51 @@ const signed = v => `<span class="${v >= 0 ? 'pos' : 'neg'}">${money(v)}</span>`
 const catById = id => state.categories.find(c => c.id === id);
 
 function persist() {
-  if (!saveState(state)) toast('No se pudo guardar en el navegador (almacenamiento bloqueado). Exporta tus datos.');
+  const local = saveState(state);
+  const cloud = Cloud.save(state);
+  if (!local && !cloud) toast('No se pudo guardar (almacenamiento bloqueado). Exporta tus datos.');
+}
+function setSyncStatus(text, level) {
+  const el = $('#sync');
+  if (!el) return;
+  el.textContent = text;
+  el.className = 'sync ' + (level || '');
 }
 function toast(msg) {
   const t = $('#toast');
   t.textContent = msg; t.classList.remove('hidden');
   clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.add('hidden'), 2600);
 }
-function download(name, content, type) {
+async function download(name, content, type) {
+  // Dentro de claude.ai las descargas pasan por la capacidad "downloads"
+  const dl = window.claude && window.claude.use ? await window.claude.use('downloads').catch(() => null) : null;
+  if (dl) {
+    try { await dl.save({ filename: name, data: content }); toast('Archivo listo'); }
+    catch (e) { if (e && e.code !== 'declined') toast('No se pudo descargar el archivo en esta vista'); }
+    return;
+  }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([content], { type }));
   a.download = name; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+/* Diálogo propio (confirm/prompt no están disponibles en todas las vistas) */
+function askDialog({ title, body = '', fields = '', ok = 'Aceptar', danger = false }) {
+  return new Promise(resolve => {
+    const box = $('#dialog');
+    box.innerHTML = `<form class="dialog-box" id="dialog-form">
+      <h3>${title}</h3>${body ? `<p>${body}</p>` : ''}${fields}
+      <div class="btn-row" style="justify-content:flex-end">
+        <button type="button" class="btn" id="dialog-cancel">Cancelar</button>
+        <button type="submit" class="btn ${danger ? 'danger-solid' : 'primary'}" id="dialog-ok">${ok}</button></div></form>`;
+    box.classList.remove('hidden');
+    const form = $('#dialog-form');
+    const close = v => { box.classList.add('hidden'); box.innerHTML = ''; resolve(v); };
+    $('#dialog-cancel').onclick = () => close(null);
+    form.onsubmit = e => { e.preventDefault(); close(Object.fromEntries(new FormData(form))); };
+    (form.querySelector('input,select') || $('#dialog-ok')).focus();
+  });
 }
 const badge = (status, text) => `<span class="badge ${status}">${text}</span>`;
 const STATUS_TEXT = { good: 'En meta', warn: 'Alerta', bad: 'Crítico', none: 'Sin datos' };
@@ -96,8 +128,10 @@ function renderResumen(agg) {
   };
 
   $('#view-resumen').innerHTML = `
-    ${firstRun || noPlan ? `<div class="notice"><div><b>¡Bienvenido!</b> Programa tu presupuesto en <i>Planificación</i> y registra lo real en <i>Movimientos</i>. ¿Quieres explorar primero con datos de ejemplo?</div>
-      <button class="btn primary" data-action="load-example">Cargar datos de ejemplo</button></div>` : ''}
+    ${state.isExample ? `<div class="notice"><div><b>Estás viendo datos de ejemplo.</b> Explora las pestañas y, cuando quieras, empieza tu propio presupuesto 2027 (se conservan las categorías, con montos en cero).</div>
+      <button class="btn primary" data-action="start-own">Empezar mi presupuesto</button></div>`
+    : noPlan ? `<div class="notice"><div><b>¡Bienvenido!</b> Programa tu presupuesto en <i>Planificación</i> y registra lo real en <i>Movimientos</i>.</div>
+      <button class="btn" data-goto="plan">Ir a Planificación</button></div>` : ''}
     <div class="grid grid-4" style="margin-bottom:18px">
       ${stat('Ingresos', P.ingreso.reduce((a, b) => a + b, 0), sumOver(R.ingreso, ytd))}
       ${stat('Gastos', P.gasto.reduce((a, b) => a + b, 0), sumOver(R.gasto, ytd))}
@@ -378,12 +412,16 @@ function renderConfig() {
 function csvCell(v) { const s = String(v); return /[",;\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
 
 const actions = {
-  'load-example'() {
-    if (state.transactions.length && !confirm('Esto reemplazará tus datos actuales por datos de ejemplo. ¿Continuar?')) return;
-    state = exampleState(); firstRun = false; persist(); render(); toast('Datos de ejemplo cargados');
+  async 'load-example'() {
+    if (!state.isExample && state.transactions.length && !await askDialog({ title: 'Cargar datos de ejemplo', body: 'Tus datos actuales se reemplazarán por datos de ejemplo. Exporta un respaldo antes si quieres conservarlos.', ok: 'Reemplazar', danger: true })) return;
+    state = Object.assign(exampleState(), { isExample: true }); persist(); render(); toast('Datos de ejemplo cargados');
   },
-  reset() {
-    if (!confirm('¿Borrar todo el presupuesto y los movimientos? Esta acción no se puede deshacer.')) return;
+  async 'start-own'() {
+    if (!await askDialog({ title: 'Empezar mi presupuesto', body: 'Se borran los montos y movimientos de ejemplo. Las categorías quedan listas para que pongas tus cifras.', ok: 'Empezar' })) return;
+    state = emptyState(); persist(); ui.view = 'plan'; $('#tabs button[data-view="plan"]').click(); toast('Listo: programa tu presupuesto mes a mes');
+  },
+  async reset() {
+    if (!await askDialog({ title: 'Borrar todo', body: 'Se eliminan el presupuesto, los movimientos y las categorías personalizadas. No se puede deshacer.', ok: 'Borrar todo', danger: true })) return;
     state = emptyState(); persist(); render(); toast('Datos borrados');
   },
   'del-tx'(el) {
@@ -393,28 +431,28 @@ const actions = {
   'repeat-row'(el) {
     const p = state.plan[el.dataset.cat]; p.fill(p[0]); persist(); render();
   },
-  'copy-jan'() {
-    if (!confirm('¿Copiar los valores de enero a todos los meses en todas las categorías?')) return;
+  async 'copy-jan'() {
+    if (!await askDialog({ title: 'Copiar enero a todo el año', body: 'Los montos de enero de cada categoría reemplazan los de febrero a diciembre.', ok: 'Copiar' })) return;
     state.categories.forEach(c => state.plan[c.id].fill(state.plan[c.id][0])); persist(); render(); toast('Plan de enero replicado');
   },
-  increase() {
-    const v = prompt('Porcentaje de incremento a aplicar (ej. 5 o -3):', '5');
-    if (v == null) return;
-    const pctV = Number(String(v).replace(',', '.'));
-    if (!isFinite(pctV)) return toast('Valor no válido');
-    const from = Number(prompt('¿Desde qué mes? (1 = enero … 12 = diciembre)', '1'));
-    if (!(from >= 1 && from <= 12)) return toast('Mes no válido');
-    const scope = confirm('¿Aplicar solo a gastos? (Aceptar = solo gastos, Cancelar = todas las categorías)');
+  async increase() {
+    const r = await askDialog({ title: 'Aplicar incremento %', ok: 'Aplicar', fields: `<div class="form-row">
+      <label class="field">Porcentaje (ej. 5 o -3)<input id="inc-pct" name="pct" type="number" step="any" value="5" required></label>
+      <label class="field">Desde el mes<select id="inc-from" name="from">${MONTHS.map((n, i) => `<option value="${i + 1}">${n}</option>`).join('')}</select></label>
+      <label class="field">Aplicar a<select id="inc-scope" name="scope"><option value="gasto">Solo gastos</option><option value="all">Todas las categorías</option></select></label></div>` });
+    if (!r) return;
+    const pctV = Number(String(r.pct).replace(',', '.')), from = Number(r.from), scope = r.scope === 'gasto';
+    if (!isFinite(pctV)) return toast('Escribe un porcentaje válido');
     state.categories.filter(c => !scope || c.type === 'gasto').forEach(c => {
       for (let m = from - 1; m < 12; m++) state.plan[c.id][m] = Math.round(state.plan[c.id][m] * (1 + pctV / 100) * 100) / 100;
     });
     persist(); render(); toast(`Incremento de ${pctV} % aplicado desde ${MONTHS[from - 1]}`);
   },
-  'fit-real'() {
+  async 'fit-real'() {
     const agg = aggregate(state);
     const data = [...agg.monthsWithData];
     if (!data.length) return;
-    if (!confirm(`Se reemplazará el plan de ${MONTHS[agg.cutoff + 1]} a diciembre de las categorías de gasto variables por su promedio real. ¿Continuar?`)) return;
+    if (!await askDialog({ title: 'Ajustar al promedio real', body: `El plan de ${MONTHS[agg.cutoff + 1].toLowerCase()} a diciembre de los gastos variables se reemplaza por su promedio real.`, ok: 'Ajustar' })) return;
     state.categories.filter(c => c.type === 'gasto' && !c.fixed).forEach(c => {
       const avg = Math.round(sumOver(agg.realByCat[c.id], data) / data.length);
       for (let m = agg.cutoff + 1; m < 12; m++) state.plan[c.id][m] = avg;
@@ -425,10 +463,10 @@ const actions = {
     const c = { id: uid(), name: 'Nueva categoría', type: 'gasto', group: 'necesidad', fixed: false };
     state.categories.push(c); state.plan[c.id] = zeros(); persist(); render();
   },
-  'del-cat'(el) {
+  async 'del-cat'(el) {
     const c = catById(el.dataset.id);
     const n = state.transactions.filter(t => t.catId === c.id).length;
-    if (!confirm(`¿Eliminar la categoría "${c.name}"${n ? ` y sus ${n} movimientos` : ''}?`)) return;
+    if (!await askDialog({ title: 'Eliminar categoría', body: `Se elimina "${esc(c.name)}"${n ? ` y sus ${n} movimientos` : ''}.`, ok: 'Eliminar', danger: true })) return;
     state.categories = state.categories.filter(x => x.id !== c.id);
     delete state.plan[c.id];
     state.transactions = state.transactions.filter(t => t.catId !== c.id);
@@ -510,3 +548,8 @@ document.addEventListener('change', e => {
 });
 
 render();
+Cloud.start({
+  onRemote(remote) { state = remote; render(); },
+  localState: () => state,
+  onStatus: setSyncStatus,
+});

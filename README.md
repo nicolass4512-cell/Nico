@@ -7,6 +7,18 @@ No requiere instalación ni servidor: abre `index.html` en cualquier navegador m
 Los datos se guardan automáticamente en el navegador (localStorage); usa *Configuración → Exportar respaldo*
 para tener una copia en archivo JSON.
 
+## Versión web en claude.ai
+
+La misma aplicación se puede publicar como página de claude.ai (útil para usarla desde el celular):
+
+```
+python3 tools/build_artifact.py presupuesto-2027.html
+```
+
+genera una sola página con el CSS y el JS en línea. Publicada allí, guarda el presupuesto en un documento
+privado de tu cuenta, así ves los mismos datos en cualquier dispositivo donde inicies sesión. Abierta como archivo
+local, guarda en el navegador.
+
 ## Secciones
 
 | Pestaña | Qué hace |
@@ -39,7 +51,7 @@ Semáforo: **verde** en meta, **naranja** alerta (dentro de la tolerancia), **ro
 
 ## Cómo empezar
 
-1. Abre `index.html` y, si quieres explorar, pulsa **Cargar datos de ejemplo** (ene–sep 2027 simulados).
+1. Abre `index.html`. La primera vez verás datos de ejemplo (ene–sep 2027 simulados); pulsa **Empezar mi presupuesto** para comenzar con tus cifras.
 2. Ajusta tus categorías y moneda en **Configuración**.
 3. Programa tus montos mensuales en **Planificación**.
 4. Registra cada movimiento real en **Movimientos** (o desde el detalle de un mes).
@@ -54,4 +66,5 @@ js/data.js        Modelo de datos, persistencia, datos de ejemplo y agregaciones
 js/charts.js      Gráficos SVG sin dependencias
 js/kpi.js         Cálculo de KPI y recomendaciones
 js/app.js         Interfaz y acciones
+tools/build_artifact.py  Genera la versión de una sola página para claude.ai
 ```
