@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Presupuesto 2027</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">27</span>
+      <div>
+        <h1>Presupuesto 2027</h1>
+        <p class="sub">Programación, control y KPI de tu presupuesto mensual</p>
+      </div>
+      <span id="sync" class="sync">Guardado en este navegador</span>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button data-view="resumen" class="active">Resumen</button>
+      <button data-view="meses">Meses</button>
+      <button data-view="plan">Planificación</button>
+      <button data-view="movs">Movimientos</button>
+      <button data-view="kpi">KPI y optimización</button>
+      <button data-view="config">Configuración</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="view-resumen" class="view active"></section>
+    <section id="view-meses" class="view"></section>
+    <section id="view-plan" class="view"></section>
+    <section id="view-movs" class="view"></section>
+    <section id="view-kpi" class="view"></section>
+    <section id="view-config" class="view"></section>
+  </main>
+
+  <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-box">
+      <button class="modal-close" data-action="close-modal" aria-label="Cerrar">×</button>
+      <div id="modal-content"></div>
+    </div>
+  </div>
+
+  <div id="dialog" class="modal hidden" role="dialog" aria-modal="true"></div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="js/data.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/kpi.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
